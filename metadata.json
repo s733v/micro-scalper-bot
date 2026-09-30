@@ -1,0 +1,6 @@
+{
+  "name": "MT5 Micro Scalper EA Studio",
+  "description": "High-frequency MQL5 scalping Expert Advisor generator, backtester, and risk workstation optimized for $5 to $10 micro accounts on M1 and M5 timeframes.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

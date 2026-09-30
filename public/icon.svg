@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="112" fill="#030712"/>
+  <rect x="24" y="24" width="464" height="464" rx="96" fill="#090d16" stroke="#06b6d4" stroke-width="8"/>
+  <path d="M96 352 L176 272 L240 336 L368 176 L416 224" fill="none" stroke="#22d3ee" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="368" cy="176" r="18" fill="#10b981"/>
+  <circle cx="176" cy="272" r="14" fill="#06b6d4"/>
+  <circle cx="240" cy="336" r="14" fill="#06b6d4"/>
+  <text x="256" y="420" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="52" font-weight="900" fill="#ffffff" text-anchor="middle" letter-spacing="2">MT5 SCALP</text>
+</svg>
