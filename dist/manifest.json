@@ -1,0 +1,26 @@
+{
+  "id": "/",
+  "name": "MT5 Micro Scalper Remote Controller",
+  "short_name": "MT5 Scalper",
+  "description": "High-frequency MT5 Scalping EA controller and workstation for iOS and web.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#030712",
+  "theme_color": "#030712",
+  "icons": [
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

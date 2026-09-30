@@ -1,5 +1,14 @@
 import { EAConfig } from '../types/ea';
 
+const escapeMql5String = (value: string): string => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+
+const clampNum = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
+
+/**
+ * Generates a complete, compile-ready MQL5 Expert Advisor source file.
+ * Every UI configuration flag is wired into the generated code so the
+ * exported .mq5 behaves exactly like the on-site strategy definition.
+ */
 export function generateMQL5Code(config: EAConfig): string {
   const strategyComment = {
     fast_ema: `Fast EMA Crossover (Fast: ${config.emaFastPeriod}, Slow: ${config.emaSlowPeriod}, Trend: ${config.emaTrendPeriod})`,
@@ -8,16 +17,20 @@ export function generateMQL5Code(config: EAConfig): string {
     pinbar_scalp: `Price Action Candle Rejection / Micro-Impulse Scalper`,
   }[config.strategy];
 
+  const bool = (v: boolean) => (v ? 'true' : 'false');
+  const d2 = (v: number) => v.toFixed(2);
+  const d1 = (v: number) => v.toFixed(1);
+
   return `//+------------------------------------------------------------------+
-//|                                     MicroScalper_MT5_SmallAcc.mq5 |
+//|                                        ${escapeMql5String(config.eaName)}.mq5 |
 //|                             High-Frequency Micro Account Scalper |
 //|          Engineered for $5.00 - $10.00 Micro Accounts (M1 / M5)   |
 //|               WITH LIVE MOBILE & WEB APP REMOTE CONTROLLER       |
 //+------------------------------------------------------------------+
 #property copyright   "MicroScalper Algo Systems"
 #property link        "https://mql5.com"
-#property version     "3.20"
-#property description "Rapid micro-scalping EA with live mobile app remote control, session filters, and zero-delay breakeven."
+#property version     "4.00"
+#property description "Rapid micro-scalping EA (${strategyComment}) with live mobile/web app remote control, session filters, and zero-delay breakeven."
 #property strict
 
 #include <Trade\\Trade.mqh>
@@ -34,64 +47,69 @@ CSymbolInfo    m_symbol;
 //+------------------------------------------------------------------+
 //| INPUT PARAMETERS                                                 |
 //+------------------------------------------------------------------+
+input group "=== GENERAL ==="
+input ulong    InpMagicNumber          = ${config.magicNumber};     // EA Unique Magic Number
+input string   InpTradeComment         = "${escapeMql5String(config.tradeComment)}"; // Broker Order Comment
+input ENUM_TIMEFRAMES InpTimeframe     = ${timeframeToEnum(config.timeframe)};      // Signal Evaluation Timeframe
+
 input group "=== REMOTE APP CONTROLLER & CLOUD BRIDGE ==="
-input bool     InpUseCloudSync         = ${config.useCloudSync ? 'true' : 'false'};        // Connect to Remote App Controller
-input string   InpCloudBridgeUrl       = "${config.cloudBridgeUrl}"; // App Cloud URL (Add to MT5 WebRequest whitelist)
-input string   InpPairingKey           = "${config.pairingKey}";   // Secret Pairing Token
-input int      InpSyncIntervalSeconds  = ${config.syncIntervalSeconds};                // Cloud Sync Rate (Seconds)
+input bool     InpUseCloudSync         = ${bool(config.useCloudSync)};        // Connect to Remote App Controller
+input string   InpCloudBridgeUrl       = "${escapeMql5String(config.cloudBridgeUrl)}"; // App Cloud URL (Add to MT5 WebRequest whitelist)
+input string   InpPairingKey           = "${escapeMql5String(config.pairingKey)}";   // Secret Pairing Token
+input int      InpSyncIntervalSeconds  = ${clampNum(config.syncIntervalSeconds, 1, 300)};                // Cloud Sync Rate (Seconds)
 
 input group "=== MICRO ACCOUNT RISK & LOT SIZING ==="
-input double   InpLotSize              = ${config.lotSize.toFixed(2)};     // Base Lot Size (0.01 Recommended for $5-$10)
-input bool     InpUseAutoCompounding   = ${config.useAutoCompounding ? 'true' : 'false'};        // Auto-Scale Lots as Capital Grows
-input double   InpCompoundStepUSD      = ${config.compoundBalanceStepUSD.toFixed(1)};      // Balance per 0.01 lot step ($USD)
+input double   InpLotSize              = ${d2(config.lotSize)};     // Base Lot Size (0.01 Recommended for $5-$10)
+input bool     InpUseAutoCompounding   = ${bool(config.useAutoCompounding)};        // Auto-Scale Lots as Capital Grows
+input double   InpCompoundStepUSD      = ${d1(config.compoundBalanceStepUSD)};      // Balance per 0.01 lot step ($USD)
 input int      InpMaxOpenTrades        = ${config.maxOpenTrades};          // Maximum Concurrent Open Positions
-input double   InpMinAccountBalance    = ${config.minFreeEquityUSD.toFixed(2)};      // Min Free Balance to Trade ($USD)
-input double   InpDailyProfitTargetUSD = ${config.dailyProfitTargetUSD.toFixed(2)};      // Daily Profit Target USD (0 = Disabled)
-input double   InpDailyLossLimitUSD    = ${config.dailyLossLimitUSD.toFixed(2)};      // Daily Max Loss Limit USD (0 = Disabled)
+input double   InpMinAccountBalance    = ${d2(config.minFreeEquityUSD)};      // Min Free Balance to Trade ($USD)
+input double   InpDailyProfitTargetUSD = ${d2(config.dailyProfitTargetUSD)};      // Daily Profit Target USD (0 = Disabled)
+input double   InpDailyLossLimitUSD    = ${d2(config.dailyLossLimitUSD)};      // Daily Max Loss Limit USD (0 = Disabled)
 
 input group "=== RAPID SCALPING EXECUTION (POINTS) ==="
 input int      InpTakeProfitPoints     = ${config.takeProfitPoints};         // Take Profit (Points: 10 pts = 1 pip)
 input int      InpStopLossPoints       = ${config.stopLossPoints};         // Stop Loss (Points: 10 pts = 1 pip)
-input bool     InpUseBreakEven         = ${config.useBreakEven ? 'true' : 'false'};        // Enable Rapid Breakeven Lock
+input bool     InpUseBreakEven         = ${bool(config.useBreakEven)};        // Enable Rapid Breakeven Lock
 input int      InpBreakEvenTrigger     = ${config.breakEvenTriggerPoints};         // BE Trigger (Points in Profit)
 input int      InpBreakEvenLock        = ${config.breakEvenLockPoints};          // BE Locked Profit (Points)
-input bool     InpUseTrailingStop      = ${config.useTrailingStop ? 'true' : 'false'};        // Enable Stepped Trailing Stop
+input bool     InpUseTrailingStop      = ${bool(config.useTrailingStop)};        // Enable Stepped Trailing Stop
 input int      InpTrailingStop         = ${config.trailingStopPoints};         // Trailing Stop Distance (Points)
 input int      InpTrailingStep         = ${config.trailingStepPoints};          // Trailing Step Interval (Points)
 input int      InpMaxHoldTimeSeconds   = ${config.maxHoldTimeSeconds};        // Stale Trade Timeout (Seconds, 0 = Off)
 
 input group "=== SPREAD & LIQUIDITY FILTERS ==="
 input int      InpMaxSpreadPoints      = ${config.maxSpreadPoints};         // Max Allowed Spread (Points: e.g. 12 = 1.2 pips)
-input bool     InpUseTickVelocity      = ${config.useTickVelocityFilter ? 'true' : 'false'};        // Require fast tick burst before entry
-input ulong    InpMagicNumber          = ${config.magicNumber};     // EA Unique Magic Number
-input string   InpTradeComment         = "${config.tradeComment}"; // Broker Order Comment
+input int      InpSlippagePoints       = ${config.slippagePoints};         // Max Slippage Deviation (Points)
+input bool     InpOneTradePerBar       = true;           // Evaluate Entries Only Once Per Closed Bar
+input bool     InpUseTickVelocity      = ${bool(config.useTickVelocityFilter)};        // Require fast tick burst before entry
 
 input group "=== TIME, SESSION & COOLDOWN GUARDS ==="
-input bool     InpUseSessionFilter     = ${config.useSessionFilter ? 'true' : 'false'};        // Restrict to Liquid Trading Hours
+input bool     InpUseSessionFilter     = ${bool(config.useSessionFilter)};        // Restrict to Liquid Trading Hours
 input int      InpStartHour            = ${config.startHour};           // Session Start Hour (Server Time: e.g. 8)
 input int      InpEndHour              = ${config.endHour};          // Session End Hour (Server Time: e.g. 20)
-input bool     InpUseFridayClose       = ${config.useFridayClose ? 'true' : 'false'};        // Close All Trades Before Weekend
+input bool     InpUseFridayClose       = ${bool(config.useFridayClose)};        // Close All Trades Before Weekend
 input int      InpFridayCloseHour      = ${config.fridayCloseHour};          // Friday Close Hour (Server Time: e.g. 20)
-input bool     InpUseLossCooldown      = ${config.useLossCooldown ? 'true' : 'false'};        // Anti-Revenge Loss Cooldown
+input bool     InpUseLossCooldown      = ${bool(config.useLossCooldown)};        // Anti-Revenge Loss Cooldown
 input int      InpMaxLosses            = ${config.maxConsecutiveLosses};           // Consecutive Losses to Trigger Pause
 input int      InpCooldownMinutes      = ${config.cooldownMinutes};          // Cooldown Duration (Minutes)
-input bool     InpUseMobileAlerts      = ${config.useMobileAlerts ? 'true' : 'false'};        // Push Notification to MT5 Phone App
+input bool     InpUseMobileAlerts      = ${bool(config.useMobileAlerts)};        // Push Notification to MT5 Phone App
 
 input group "=== VOLATILITY ADAPTATION (ATR SCALER) ==="
-input bool     InpUseAtrDynamic        = ${config.useAtrDynamicScaling ? 'true' : 'false'};        // ATR Dynamic Volatility TP/SL Scaler
+input bool     InpUseAtrDynamic        = ${bool(config.useAtrDynamicScaling)};        // ATR Dynamic Volatility TP/SL Scaler
 input int      InpAtrPeriod            = ${config.atrPeriod};          // ATR Calculation Period
-input double   InpAtrMultiplierTP      = ${config.atrMultiplierTP.toFixed(1)};        // ATR Multiplier for Take Profit
-input double   InpAtrMultiplierSL      = ${config.atrMultiplierSL.toFixed(1)};        // ATR Multiplier for Stop Loss
+input double   InpAtrMultiplierTP      = ${d1(config.atrMultiplierTP)};        // ATR Multiplier for Take Profit
+input double   InpAtrMultiplierSL      = ${d1(config.atrMultiplierSL)};        // ATR Multiplier for Stop Loss
 
 input group "=== STRATEGY PARAMETERS (${config.strategy.toUpperCase()}) ==="
 input int      InpEmaFastPeriod        = ${config.emaFastPeriod};          // Fast EMA Period
 input int      InpEmaSlowPeriod        = ${config.emaSlowPeriod};         // Slow EMA Period
 input int      InpEmaTrendPeriod       = ${config.emaTrendPeriod};         // Baseline Trend Filter EMA
 input int      InpRsiPeriod            = ${config.rsiPeriod};          // RSI Momentum Period
-input double   InpRsiOverbought        = ${config.rsiOverbought.toFixed(1)};       // RSI Overbought Level
-input double   InpRsiOversold          = ${config.rsiOversold.toFixed(1)};       // RSI Oversold Level
+input double   InpRsiOverbought        = ${d1(config.rsiOverbought)};       // RSI Overbought Level
+input double   InpRsiOversold          = ${d1(config.rsiOversold)};       // RSI Oversold Level
 input int      InpBbPeriod             = ${config.bbPeriod};         // Bollinger Bands Period
-input double   InpBbDeviation          = ${config.bbDeviation.toFixed(1)};        // Bollinger Bands StdDev
+input double   InpBbDeviation          = ${d1(config.bbDeviation)};        // Bollinger Bands StdDev
 
 //--- Indicator Handles
 int h_emaFast   = INVALID_HANDLE;
@@ -101,10 +119,15 @@ int h_rsi       = INVALID_HANDLE;
 int h_bb        = INVALID_HANDLE;
 int h_atr       = INVALID_HANDLE;
 
-//--- State tracking for tick velocity & cooldown
-datetime g_lastLossTime = 0;
+//--- State tracking for tick velocity, cooldown & daily guards
+datetime g_lastNewBarTime   = 0;
 datetime g_recentTicks[5];
-int      g_tickIndex = 0;
+int      g_tickIndex        = 0;
+datetime g_cooldownUntil    = 0;
+datetime g_lastHistoryDay   = 0;
+double   g_dailyPnlUSD      = 0.0;
+bool     g_dailyTargetHit   = false;
+bool     g_dailyLossHit     = false;
 
 //--- Remote Cloud Controller Dynamic State (Overridden in real-time by App)
 bool     g_cloudConnected      = false;
@@ -112,9 +135,10 @@ bool     g_remotePaused        = false;
 int      g_activeTP            = ${config.takeProfitPoints};
 int      g_activeSL            = ${config.stopLossPoints};
 int      g_activeBE            = ${config.breakEvenTriggerPoints};
+int      g_activeTrail         = ${config.trailingStopPoints};
 int      g_activeHoldTime      = ${config.maxHoldTimeSeconds};
 int      g_activeMaxSpread     = ${config.maxSpreadPoints};
-double   g_activeLot           = ${config.lotSize.toFixed(2)};
+double   g_activeLot           = ${d2(config.lotSize)};
 string   g_activeStrategy      = "${config.strategy}";
 int      g_lastConfigVersion   = 0;
 datetime g_lastSyncTime        = 0;
@@ -132,28 +156,34 @@ int OnInit()
    m_symbol.Refresh();
 
    m_trade.SetExpertMagicNumber(InpMagicNumber);
-   m_trade.SetDeviationInPoints(${config.slippagePoints});
+   m_trade.SetDeviationInPoints(InpSlippagePoints);
    m_trade.SetTypeFillingBySymbol(_Symbol);
 
-   h_emaFast  = iMA(_Symbol, _Period, InpEmaFastPeriod, 0, MODE_EMA, PRICE_CLOSE);
-   h_emaSlow  = iMA(_Symbol, _Period, InpEmaSlowPeriod, 0, MODE_EMA, PRICE_CLOSE);
-   h_emaTrend = iMA(_Symbol, _Period, InpEmaTrendPeriod, 0, MODE_EMA, PRICE_CLOSE);
-   h_rsi      = iRSI(_Symbol, _Period, InpRsiPeriod, PRICE_CLOSE);
-   h_bb       = iBands(_Symbol, _Period, InpBbPeriod, 0, InpBbDeviation, PRICE_CLOSE);
-   h_atr      = iATR(_Symbol, _Period, InpAtrPeriod);
+   h_emaFast  = iMA(_Symbol, InpTimeframe, InpEmaFastPeriod, 0, MODE_EMA, PRICE_CLOSE);
+   h_emaSlow  = iMA(_Symbol, InpTimeframe, InpEmaSlowPeriod, 0, MODE_EMA, PRICE_CLOSE);
+   h_emaTrend = iMA(_Symbol, InpTimeframe, InpEmaTrendPeriod, 0, MODE_EMA, PRICE_CLOSE);
+   h_rsi      = iRSI(_Symbol, InpTimeframe, InpRsiPeriod, PRICE_CLOSE);
+   h_bb       = iBands(_Symbol, InpTimeframe, InpBbPeriod, 0, InpBbDeviation, PRICE_CLOSE);
+   h_atr      = iATR(_Symbol, InpTimeframe, InpAtrPeriod);
 
-   if(h_emaFast == INVALID_HANDLE || h_emaSlow == INVALID_HANDLE || h_rsi == INVALID_HANDLE || h_bb == INVALID_HANDLE || h_atr == INVALID_HANDLE)
+   if(h_emaFast == INVALID_HANDLE || h_emaSlow == INVALID_HANDLE ||
+      h_emaTrend == INVALID_HANDLE || h_rsi == INVALID_HANDLE ||
+      h_bb == INVALID_HANDLE || h_atr == INVALID_HANDLE)
    {
       Print("Error creating indicator handles. Error code: ", GetLastError());
       return(INIT_FAILED);
    }
 
    ArrayInitialize(g_recentTicks, 0);
+   g_tickIndex = 0;
+
+   // Recompute the day's realized P/L from history so limits survive restarts
+   RecalculateDailyPnl();
 
    // 1-Second Timer for fast execution, breakeven, and remote app sync
    EventSetTimer(1);
 
-   Print("MicroScalper EA v3.20 loaded. Pairing Key: ", InpPairingKey);
+   Print("${escapeMql5String(config.eaName)} v4.00 loaded. Strategy: ${config.strategy}. Pairing Key: ", InpPairingKey);
    if(InpUseMobileAlerts)
       SendNotification("MicroScalper EA active on " + _Symbol + ". App remote bridge enabled.");
 
@@ -166,14 +196,14 @@ int OnInit()
 void OnDeinit(const int reason)
 {
    EventKillTimer();
-   
+
    if(h_emaFast != INVALID_HANDLE)  IndicatorRelease(h_emaFast);
    if(h_emaSlow != INVALID_HANDLE)  IndicatorRelease(h_emaSlow);
    if(h_emaTrend != INVALID_HANDLE) IndicatorRelease(h_emaTrend);
    if(h_rsi != INVALID_HANDLE)      IndicatorRelease(h_rsi);
    if(h_bb != INVALID_HANDLE)       IndicatorRelease(h_bb);
    if(h_atr != INVALID_HANDLE)      IndicatorRelease(h_atr);
-   
+
    Comment("");
 }
 
@@ -184,7 +214,7 @@ void OnTick()
 {
    m_symbol.RefreshRates();
    RecordTickVelocity();
-   
+
    UpdateChartHud();
 
    // 1. Position Management (Breakeven, Trailing Stop, Stale Timeout)
@@ -209,7 +239,7 @@ void OnTick()
    if(InpUseLossCooldown && IsLossCooldownActive())
       return;
 
-   // 6. Account Safety Floor Check
+   // 6. Account Safety Floor & Daily Profit/Loss Guards
    if(!IsAccountSafeToTrade())
       return;
 
@@ -226,7 +256,11 @@ void OnTick()
    if(CountOpenPositions() >= InpMaxOpenTrades)
       return;
 
-   // 10. Evaluate Scalping Signal
+   // 10. One evaluation per closed bar (prevents same-bar re-entry spam)
+   if(InpOneTradePerBar && !IsNewBar())
+      return;
+
+   // 11. Evaluate Scalping Signal
    CheckAndExecuteSignal();
 }
 
@@ -238,7 +272,7 @@ void OnTimer()
    // 1. Sync with Remote Web/Mobile App via WebRequest
    SyncWithRemoteApp();
 
-   // 2. Manage trades
+   // 2. Manage trades even during quiet market periods
    ManageActiveTrades();
 }
 
@@ -296,41 +330,59 @@ void SyncWithRemoteApp()
 //+------------------------------------------------------------------+
 void ParseAndUpdateCloudSettings(string json)
 {
-   // 1. Check Emergency Kill Switch
+   // 1. Emergency Kill Switch (server dispatches each command exactly once)
    string cmd = ExtractJsonString(json, "cmd");
    if(cmd == "CLOSE_ALL")
    {
       Print("EMERGENCY KILL SWITCH TRIGGERED FROM REMOTE APP!");
       CloseAllPositions("Remote App Kill Switch");
+      if(InpUseMobileAlerts)
+         SendNotification("MicroScalper: CLOSE ALL executed from remote app.");
    }
 
    // 2. Pause / Resume Toggle
-   int paused = ExtractJsonInt(json, "paused");
-   g_remotePaused = (paused == 1);
+   g_remotePaused = ExtractJsonBool(json, "paused");
 
-   // 3. Dynamic Setting Overrides
-   int tp = ExtractJsonInt(json, "tp");
-   if(tp >= 10 && tp <= 100) g_activeTP = tp;
+   // 3. Dynamic Setting Overrides (only when server reports a new config version)
+   int v = ExtractJsonInt(json, "v");
+   if(v > 0 && v != g_lastConfigVersion)
+   {
+      g_lastConfigVersion = v;
 
-   int sl = ExtractJsonInt(json, "sl");
-   if(sl >= 10 && sl <= 150) g_activeSL = sl;
+      int tp = ExtractJsonInt(json, "tp");
+      if(tp >= 10 && tp <= 100) g_activeTP = tp;
 
-   int be = ExtractJsonInt(json, "be");
-   if(be >= 5 && be <= 50) g_activeBE = be;
+      int sl = ExtractJsonInt(json, "sl");
+      if(sl >= 10 && sl <= 150) g_activeSL = sl;
 
-   int hold = ExtractJsonInt(json, "hold");
-   if(hold >= 20 && hold <= 600) g_activeHoldTime = hold;
+      int be = ExtractJsonInt(json, "be");
+      if(be >= 5 && be <= 50) g_activeBE = be;
 
-   int spread = ExtractJsonInt(json, "spread");
-   if(spread >= 5 && spread <= 50) g_activeMaxSpread = spread;
+      int trail = ExtractJsonInt(json, "trail");
+      if(trail >= 5 && trail <= 100) g_activeTrail = trail;
 
-   double lot = ExtractJsonDouble(json, "lot");
-   if(lot >= 0.01 && lot <= 0.05) g_activeLot = lot;
+      int hold = ExtractJsonInt(json, "hold");
+      if(hold >= 20 && hold <= 600) g_activeHoldTime = hold;
 
-   string strat = ExtractJsonString(json, "strat");
-   if(StringLen(strat) > 0) g_activeStrategy = strat;
+      int maxSpread = ExtractJsonInt(json, "spread");
+      if(maxSpread >= 5 && maxSpread <= 50) g_activeMaxSpread = maxSpread;
+
+      double lot = ExtractJsonDouble(json, "lot");
+      if(lot >= 0.01 && lot <= 0.05) g_activeLot = lot;
+
+      string strat = ExtractJsonString(json, "strat");
+      if(StringLen(strat) > 0) g_activeStrategy = strat;
+
+      Print("Cloud config v", v, " applied: TP=", g_activeTP, " SL=", g_activeSL,
+            " BE=", g_activeBE, " TRAIL=", g_activeTrail, " HOLD=", g_activeHoldTime,
+            " SPREAD=", g_activeMaxSpread, " LOT=", DoubleToString(g_activeLot, 2),
+            " STRAT=", g_activeStrategy);
+   }
 }
 
+//+------------------------------------------------------------------+
+//| Minimal JSON helpers (server emits flat single-line key:value)   |
+//+------------------------------------------------------------------+
 string ExtractJsonString(string json, string key)
 {
    string search = "\\"" + key + "\\":\\"";
@@ -344,7 +396,7 @@ string ExtractJsonString(string json, string key)
 
 int ExtractJsonInt(string json, string key)
 {
-   string search = "\\"" + key + "\\":";
+   string search = "\\"" + key + "\":";
    int pos = StringFind(json, search);
    if(pos < 0) return 0;
    pos += StringLen(search);
@@ -353,14 +405,12 @@ int ExtractJsonInt(string json, string key)
    if(endPos < 0) return 0;
    string val = StringSubstr(json, pos, endPos - pos);
    StringTrimLeft(val); StringTrimRight(val);
-   if(val == "true") return 1;
-   if(val == "false") return 0;
    return (int)StringToInteger(val);
 }
 
 double ExtractJsonDouble(string json, string key)
 {
-   string search = "\\"" + key + "\\":";
+   string search = "\\"" + key + "\":";
    int pos = StringFind(json, search);
    if(pos < 0) return 0.0;
    pos += StringLen(search);
@@ -370,6 +420,21 @@ double ExtractJsonDouble(string json, string key)
    string val = StringSubstr(json, pos, endPos - pos);
    StringTrimLeft(val); StringTrimRight(val);
    return StringToDouble(val);
+}
+
+bool ExtractJsonBool(string json, string key)
+{
+   string search = "\\"" + key + "\":";
+   int pos = StringFind(json, search);
+   if(pos < 0) return false;
+   pos += StringLen(search);
+   int endPos = StringFind(json, ",", pos);
+   if(endPos < 0) endPos = StringFind(json, "}", pos);
+   if(endPos < 0) return false;
+   string val = StringSubstr(json, pos, endPos - pos);
+   StringTrimLeft(val); StringTrimRight(val);
+   if(val == "true" || val == "1") return true;
+   return false;
 }
 
 //+------------------------------------------------------------------+
@@ -445,16 +510,19 @@ void ManageActiveTrades()
          }
       }
 
-      //--- C. Stepped Trailing Stop
+      //--- C. Stepped Trailing Stop (respects broker stops/freeze level)
       if(InpUseTrailingStop)
       {
+         double stopsLevel = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL) * point;
+
          if(type == POSITION_TYPE_BUY)
          {
             double profitPoints = (bid - openPrice) / point;
-            if(profitPoints > InpTrailingStop)
+            if(profitPoints > g_activeTrail)
             {
-               double desiredSL = NormalizeDouble(bid - (InpTrailingStop * point), _Digits);
-               if(desiredSL > currentSL + (InpTrailingStep * point) || currentSL == 0.0)
+               double desiredSL = NormalizeDouble(bid - (g_activeTrail * point), _Digits);
+               if(desiredSL <= bid - stopsLevel &&
+                  (desiredSL > currentSL + (InpTrailingStep * point) || currentSL == 0.0))
                {
                   m_trade.PositionModify(ticket, desiredSL, currentTP);
                }
@@ -463,10 +531,11 @@ void ManageActiveTrades()
          else if(type == POSITION_TYPE_SELL)
          {
             double profitPoints = (openPrice - ask) / point;
-            if(profitPoints > InpTrailingStop)
+            if(profitPoints > g_activeTrail)
             {
-               double desiredSL = NormalizeDouble(ask + (InpTrailingStop * point), _Digits);
-               if(desiredSL < currentSL - (InpTrailingStep * point) || currentSL == 0.0)
+               double desiredSL = NormalizeDouble(ask + (g_activeTrail * point), _Digits);
+               if(desiredSL >= ask + stopsLevel &&
+                  (desiredSL < currentSL - (InpTrailingStep * point) || currentSL == 0.0))
                {
                   m_trade.PositionModify(ticket, desiredSL, currentTP);
                }
@@ -491,6 +560,9 @@ void CheckAndExecuteSignal()
 
 ${generateStrategySignalMQL5(config.strategy)}
 
+   if(!buySignal && !sellSignal)
+      return;
+
    // Determine Active Take Profit & Stop Loss (Dynamic ATR or Cloud Config)
    int activeTP = g_activeTP;
    int activeSL = g_activeSL;
@@ -503,18 +575,27 @@ ${generateStrategySignalMQL5(config.strategy)}
       {
          int dynamicTP = (int)MathRound((atrVal[0] * InpAtrMultiplierTP) / point);
          int dynamicSL = (int)MathRound((atrVal[0] * InpAtrMultiplierSL) / point);
-         
+
          if(dynamicTP >= 15 && dynamicTP <= 55) activeTP = dynamicTP;
          if(dynamicSL >= 20 && dynamicSL <= 60) activeSL = dynamicSL;
       }
    }
 
+   // Broker compliance: minimum stop distance checks
+   double stopsLevel  = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_STOPS_LEVEL) * point;
+   double freezeLevel = SymbolInfoInteger(_Symbol, SYMBOL_TRADE_FREEZE_LEVEL) * point;
+   double minDistance = MathMax(stopsLevel, freezeLevel) + point;
+
    // Place BUY Order
    if(buySignal)
    {
-      double sl = (activeSL > 0) ? NormalizeDouble(ask - (activeSL * point), _Digits) : 0;
-      double tp = (activeTP > 0) ? NormalizeDouble(ask + (activeTP * point), _Digits) : 0;
-      
+      double sl = 0, tp = 0;
+      if(activeSL > 0) sl = NormalizeDouble(ask - (activeSL * point), _Digits);
+      if(activeTP > 0) tp = NormalizeDouble(ask + (activeTP * point), _Digits);
+
+      if(sl > 0 && ask - sl < minDistance) sl = NormalizeDouble(ask - minDistance, _Digits);
+      if(tp > 0 && tp - ask < minDistance) tp = NormalizeDouble(ask + minDistance, _Digits);
+
       if(m_trade.Buy(lots, _Symbol, ask, sl, tp, InpTradeComment))
       {
          Print("Micro Scalp BUY Executed: ", lots, " lot @ ", ask, " SL: ", sl, " TP: ", tp);
@@ -529,9 +610,13 @@ ${generateStrategySignalMQL5(config.strategy)}
    // Place SELL Order
    else if(sellSignal)
    {
-      double sl = (activeSL > 0) ? NormalizeDouble(bid + (activeSL * point), _Digits) : 0;
-      double tp = (activeTP > 0) ? NormalizeDouble(bid - (activeTP * point), _Digits) : 0;
-      
+      double sl = 0, tp = 0;
+      if(activeSL > 0) sl = NormalizeDouble(bid + (activeSL * point), _Digits);
+      if(activeTP > 0) tp = NormalizeDouble(bid - (activeTP * point), _Digits);
+
+      if(sl > 0 && sl - bid < minDistance) sl = NormalizeDouble(bid + minDistance, _Digits);
+      if(tp > 0 && bid - tp < minDistance) tp = NormalizeDouble(bid - minDistance, _Digits);
+
       if(m_trade.Sell(lots, _Symbol, bid, sl, tp, InpTradeComment))
       {
          Print("Micro Scalp SELL Executed: ", lots, " lot @ ", bid, " SL: ", sl, " TP: ", tp);
@@ -550,17 +635,29 @@ ${generateStrategySignalMQL5(config.strategy)}
 //+------------------------------------------------------------------+
 double GetCalculatedLotSize()
 {
-   if(!InpUseAutoCompounding || InpCompoundStepUSD <= 0)
-      return g_activeLot;
+   double lots = g_activeLot;
 
-   double balance = m_account.Balance();
-   int steps = (int)MathFloor(balance / InpCompoundStepUSD);
-   double computedLots = g_activeLot + (steps * 0.01);
-   
-   if(computedLots > 0.05)
-      computedLots = 0.05;
+   if(InpUseAutoCompounding && InpCompoundStepUSD > 0)
+   {
+      double balance = m_account.Balance();
+      int steps = (int)MathFloor(balance / InpCompoundStepUSD);
+      lots = lots + (steps * 0.01);
 
-   return NormalizeDouble(computedLots, 2);
+      if(lots > 0.05)
+         lots = 0.05;
+   }
+
+   // Clamp to broker symbol volume limits
+   double volMin  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MIN);
+   double volMax  = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_MAX);
+   double volStep = SymbolInfoDouble(_Symbol, SYMBOL_VOLUME_STEP);
+
+   if(volStep > 0)
+      lots = MathFloor(lots / volStep) * volStep;
+   if(volMin > 0 && lots < volMin) lots = volMin;
+   if(volMax > 0 && lots > volMax) lots = volMax;
+
+   return NormalizeDouble(lots, 2);
 }
 
 //+------------------------------------------------------------------+
@@ -581,6 +678,53 @@ int CountOpenPositions()
 }
 
 //+------------------------------------------------------------------+
+//| Detect a newly opened bar on the signal timeframe                |
+//+------------------------------------------------------------------+
+bool IsNewBar()
+{
+   datetime barTime = iTime(_Symbol, InpTimeframe, 0);
+   if(barTime == 0)
+      return false;
+
+   if(barTime != g_lastNewBarTime)
+   {
+      g_lastNewBarTime = barTime;
+      return true;
+   }
+   return false;
+}
+
+//+------------------------------------------------------------------+
+//| Recompute today's realized P/L from deal history                 |
+//+------------------------------------------------------------------+
+void RecalculateDailyPnl()
+{
+   datetime dayStart = iTime(_Symbol, PERIOD_D1, 0);
+   if(dayStart == 0)
+      dayStart = (datetime)((long)(TimeCurrent() / 86400) * 86400);
+
+   g_dailyPnlUSD = 0.0;
+   HistorySelect(dayStart, TimeCurrent() + 60);
+
+   int dealsTotal = HistoryDealsTotal();
+   for(int i = 0; i < dealsTotal; i++)
+   {
+      ulong dealTicket = HistoryDealGetTicket(i);
+      if(dealTicket > 0)
+      {
+         if(HistoryDealGetString(dealTicket, DEAL_SYMBOL) == _Symbol &&
+            HistoryDealGetInteger(dealTicket, DEAL_MAGIC) == (long)InpMagicNumber &&
+            HistoryDealGetInteger(dealTicket, DEAL_ENTRY) != DEAL_ENTRY_IN)
+         {
+            g_dailyPnlUSD += HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
+            g_dailyPnlUSD += HistoryDealGetDouble(dealTicket, DEAL_SWAP);
+            g_dailyPnlUSD += HistoryDealGetDouble(dealTicket, DEAL_COMMISSION);
+         }
+      }
+   }
+}
+
+//+------------------------------------------------------------------+
 //| Check Account Capital & Daily Loss / Profit Limits               |
 //+------------------------------------------------------------------+
 bool IsAccountSafeToTrade()
@@ -591,39 +735,43 @@ bool IsAccountSafeToTrade()
    if(balance < InpMinAccountBalance || equity < InpMinAccountBalance)
       return false;
 
-   datetime startOfDay = StringToTime(TimeToString(TimeCurrent(), TIME_DATE) + " 00:00:00");
-   HistorySelect(startOfDay, TimeCurrent());
-   
-   double dailyProfit = 0.0;
-   int dealsTotal = HistoryDealsTotal();
-   for(int i = 0; i < dealsTotal; i++)
+   datetime dayStart = iTime(_Symbol, PERIOD_D1, 0);
+   if(dayStart == 0)
+      dayStart = (datetime)((long)(TimeCurrent() / 86400) * 86400);
+
+   // Roll daily counters at midnight (server time)
+   if(dayStart != g_lastHistoryDay)
    {
-      ulong dealTicket = HistoryDealGetTicket(i);
-      if(dealTicket > 0)
-      {
-         if(HistoryDealGetString(dealTicket, DEAL_SYMBOL) == _Symbol &&
-            HistoryDealGetInteger(dealTicket, DEAL_MAGIC) == InpMagicNumber)
-         {
-            dailyProfit += HistoryDealGetDouble(dealTicket, DEAL_PROFIT);
-            dailyProfit += HistoryDealGetDouble(dealTicket, DEAL_SWAP);
-            dailyProfit += HistoryDealGetDouble(dealTicket, DEAL_COMMISSION);
-         }
-      }
+      g_lastHistoryDay = dayStart;
+      g_dailyTargetHit = false;
+      g_dailyLossHit   = false;
    }
 
-   if(InpDailyProfitTargetUSD > 0 && dailyProfit >= InpDailyProfitTargetUSD)
+   RecalculateDailyPnl();
+
+   if(InpDailyProfitTargetUSD > 0 && g_dailyPnlUSD >= InpDailyProfitTargetUSD)
    {
-      static bool targetNotified = false;
-      if(!targetNotified && InpUseMobileAlerts)
+      if(!g_dailyTargetHit)
       {
-         SendNotification("MicroScalper: DAILY PROFIT TARGET HIT! (+$" + DoubleToString(dailyProfit, 2) + ")");
-         targetNotified = true;
+         g_dailyTargetHit = true;
+         if(InpUseMobileAlerts)
+            SendNotification("MicroScalper: DAILY PROFIT TARGET HIT! (+$" + DoubleToString(g_dailyPnlUSD, 2) + ")");
+         Print("Daily profit target reached: ", DoubleToString(g_dailyPnlUSD, 2));
       }
       return false;
    }
 
-   if(InpDailyLossLimitUSD > 0 && dailyProfit <= -InpDailyLossLimitUSD)
+   if(InpDailyLossLimitUSD > 0 && g_dailyPnlUSD <= -InpDailyLossLimitUSD)
+   {
+      if(!g_dailyLossHit)
+      {
+         g_dailyLossHit = true;
+         if(InpUseMobileAlerts)
+            SendNotification("MicroScalper: DAILY LOSS LIMIT REACHED (-$" + DoubleToString(MathAbs(g_dailyPnlUSD), 2) + "). Paused until tomorrow.");
+         Print("Daily loss limit reached: ", DoubleToString(g_dailyPnlUSD, 2));
+      }
       return false;
+   }
 
    return true;
 }
@@ -636,10 +784,14 @@ bool IsInsideTradingHours()
    MqlDateTime dt;
    TimeToStruct(TimeCurrent(), dt);
 
-   if(dt.hour < InpStartHour || dt.hour >= InpEndHour)
-      return false;
+   if(InpStartHour == InpEndHour)
+      return true;
 
-   return true;
+   // Normal window (start < end) vs overnight window wrapping past midnight
+   if(InpStartHour < InpEndHour)
+      return (dt.hour >= InpStartHour && dt.hour < InpEndHour);
+
+   return (dt.hour >= InpStartHour || dt.hour < InpEndHour);
 }
 
 //+------------------------------------------------------------------+
@@ -661,8 +813,11 @@ void CloseAllPositions(string reason)
       {
          if(m_position.Symbol() == _Symbol && m_position.Magic() == InpMagicNumber)
          {
-            m_trade.PositionClose(m_position.Ticket());
-            Print("Closed position #", m_position.Ticket(), " reason: ", reason);
+            if(m_trade.PositionClose(m_position.Ticket()))
+               Print("Closed position #", m_position.Ticket(), " reason: ", reason);
+            else
+               Print("Failed to close position #", m_position.Ticket(), " reason: ", reason,
+                     " retcode: ", m_trade.ResultRetcodeDescription());
          }
       }
    }
@@ -673,42 +828,63 @@ void CloseAllPositions(string reason)
 //+------------------------------------------------------------------+
 bool IsLossCooldownActive()
 {
-   HistorySelect(TimeCurrent() - 86400, TimeCurrent());
+   if(!InpUseLossCooldown)
+      return false;
+
+   if(g_cooldownUntil > TimeCurrent())
+      return true;
+
+   // Scan the most recent closed-out deals of this EA (newest first)
+   datetime lookbackStart = TimeCurrent() - 3 * 86400;
+   HistorySelect(lookbackStart, TimeCurrent() + 60);
+
    int consecutiveLosses = 0;
    datetime lastLossTime = 0;
+   int total = HistoryDealsTotal();
 
-   for(int i = HistoryDealsTotal() - 1; i >= 0; i--)
+   for(int i = total - 1; i >= 0; i--)
    {
       ulong ticket = HistoryDealGetTicket(i);
-      if(ticket > 0 && HistoryDealGetInteger(ticket, DEAL_ENTRY) == DEAL_ENTRY_OUT)
+      if(ticket == 0)
+         continue;
+      if(HistoryDealGetInteger(ticket, DEAL_ENTRY) != DEAL_ENTRY_OUT)
+         continue;
+      if(HistoryDealGetString(ticket, DEAL_SYMBOL) != _Symbol)
+         continue;
+      if(HistoryDealGetInteger(ticket, DEAL_MAGIC) != (long)InpMagicNumber)
+         continue;
+
+      double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT) +
+                      HistoryDealGetDouble(ticket, DEAL_SWAP) +
+                      HistoryDealGetDouble(ticket, DEAL_COMMISSION);
+
+      if(profit < 0)
       {
-         if(HistoryDealGetString(ticket, DEAL_SYMBOL) == _Symbol &&
-            HistoryDealGetInteger(ticket, DEAL_MAGIC) == InpMagicNumber)
-         {
-            double profit = HistoryDealGetDouble(ticket, DEAL_PROFIT);
-            if(profit < 0)
-            {
-               consecutiveLosses++;
-               if(lastLossTime == 0)
-                  lastLossTime = (datetime)HistoryDealGetInteger(ticket, DEAL_TIME);
-               
-               if(consecutiveLosses >= InpMaxLosses)
-                  break;
-            }
-            else if(profit > 0)
-            {
-               break;
-            }
-         }
+         consecutiveLosses++;
+         if(lastLossTime == 0)
+            lastLossTime = (datetime)HistoryDealGetInteger(ticket, DEAL_TIME);
+
+         if(consecutiveLosses >= InpMaxLosses)
+            break;
+      }
+      else if(profit > 0)
+      {
+         break;
       }
    }
 
    if(consecutiveLosses >= InpMaxLosses && lastLossTime > 0)
    {
-      int secondsElapsed = (int)(TimeCurrent() - lastLossTime);
-      int cooldownSeconds = InpCooldownMinutes * 60;
-      if(secondsElapsed < cooldownSeconds)
+      datetime until = lastLossTime + (InpCooldownMinutes * 60);
+      if(TimeCurrent() < until)
       {
+         if(g_cooldownUntil != until)
+         {
+            g_cooldownUntil = until;
+            if(InpUseMobileAlerts)
+               SendNotification("MicroScalper: " + IntegerToString(consecutiveLosses) +
+                                " consecutive losses. Cooling down " + IntegerToString(InpCooldownMinutes) + " minutes.");
+         }
          return true;
       }
    }
@@ -721,23 +897,29 @@ bool IsLossCooldownActive()
 //+------------------------------------------------------------------+
 void RecordTickVelocity()
 {
-   g_recentTicks[g_tickIndex] = TimeCurrent();
+   g_recentTicks[g_tickIndex] = TimeLocal();
    g_tickIndex = (g_tickIndex + 1) % 5;
 }
 
 bool HasSufficientTickVelocity()
 {
-   datetime oldestTick = g_recentTicks[0];
-   for(int i = 1; i < 5; i++)
+   datetime oldestTick = 0;
+   int observed = 0;
+
+   for(int i = 0; i < 5; i++)
    {
-      if(g_recentTicks[i] < oldestTick && g_recentTicks[i] > 0)
+      if(g_recentTicks[i] == 0)
+         continue;
+      if(oldestTick == 0 || g_recentTicks[i] < oldestTick)
          oldestTick = g_recentTicks[i];
+      observed++;
    }
 
-   if(oldestTick == 0)
+   // Not enough tick history yet - allow trading
+   if(observed < 5 || oldestTick == 0)
       return true;
 
-   return ((TimeCurrent() - oldestTick) <= 4);
+   return ((TimeLocal() - oldestTick) <= 4);
 }
 
 //+------------------------------------------------------------------+
@@ -750,12 +932,16 @@ void UpdateChartHud()
 
    if(g_remotePaused)
       status = "PAUSED (REMOTE APP)";
-   else if(InpUseSessionFilter && !IsInsideTradingHours())
-      status = "PAUSED (SESSION HOURS)";
    else if(InpUseFridayClose && IsFridayCloseTime())
       status = "PAUSED (WEEKEND CLOSE)";
+   else if(InpUseSessionFilter && !IsInsideTradingHours())
+      status = "PAUSED (SESSION HOURS)";
    else if(InpUseLossCooldown && IsLossCooldownActive())
       status = "PAUSED (LOSS COOLDOWN)";
+   else if(g_dailyTargetHit)
+      status = "DONE (PROFIT TARGET)";
+   else if(g_dailyLossHit)
+      status = "DONE (LOSS LIMIT)";
    else if(spread > g_activeMaxSpread)
       status = "SPREAD FILTERED (" + IntegerToString(spread) + " pts)";
 
@@ -766,10 +952,12 @@ void UpdateChartHud()
                 "========================================\\n" +
                 " Cloud Remote App: " + syncStatus + "\\n" +
                 " Pairing Token:    " + InpPairingKey + "\\n" +
+                " Active Strategy:  " + g_activeStrategy + "\\n" +
                 " Active Lot Size:  " + DoubleToString(GetCalculatedLotSize(), 2) + "\\n" +
                 " Scalping Targets: TP=" + IntegerToString(g_activeTP) + " SL=" + IntegerToString(g_activeSL) + " BE=" + IntegerToString(g_activeBE) + "\\n" +
                 " Account Balance:  $" + DoubleToString(m_account.Balance(), 2) + "\\n" +
                 " Account Equity:   $" + DoubleToString(m_account.Equity(), 2) + "\\n" +
+                " Today Realized:   $" + DoubleToString(g_dailyPnlUSD, 2) + "\\n" +
                 " Current Spread:   " + IntegerToString(spread) + " pts (Max: " + IntegerToString(g_activeMaxSpread) + ")\\n" +
                 " Open Trades:      " + IntegerToString(CountOpenPositions()) + " / " + IntegerToString(InpMaxOpenTrades) + "\\n" +
                 " EA Status:        " + status + "\\n" +
@@ -778,6 +966,15 @@ void UpdateChartHud()
 }
 //+------------------------------------------------------------------+
 `;
+}
+
+function timeframeToEnum(timeframe: EAConfig['timeframe']): string {
+  switch (timeframe) {
+    case 'M1':
+      return 'PERIOD_M1';
+    case 'M5':
+      return 'PERIOD_M5';
+  }
 }
 
 function generateStrategySignalMQL5(strategy: EAConfig['strategy']): string {
@@ -826,17 +1023,16 @@ function generateStrategySignalMQL5(strategy: EAConfig['strategy']): string {
 
     case 'bollinger_bounce':
       return `   //--- Strategy: Bollinger Band Micro-Squeeze Reversal
-   double bbUpper[], bbLower[], bbMid[];
+   double bbUpper[], bbLower[];
    ArraySetAsSeries(bbUpper, true);
    ArraySetAsSeries(bbLower, true);
-   ArraySetAsSeries(bbMid, true);
 
    MqlRates rates[];
    ArraySetAsSeries(rates, true);
 
    if(CopyBuffer(h_bb, 1, 0, 3, bbUpper) < 3 ||
       CopyBuffer(h_bb, 2, 0, 3, bbLower) < 3 ||
-      CopyRates(_Symbol, _Period, 0, 3, rates) < 3)
+      CopyRates(_Symbol, InpTimeframe, 0, 3, rates) < 3)
       return;
 
    // Candle low touched/pierced lower band and closed back inside
@@ -855,10 +1051,9 @@ function generateStrategySignalMQL5(strategy: EAConfig['strategy']): string {
    MqlRates rates[];
    ArraySetAsSeries(rates, true);
 
-   if(CopyRates(_Symbol, _Period, 0, 4, rates) < 4)
+   if(CopyRates(_Symbol, InpTimeframe, 0, 4, rates) < 4)
       return;
 
-   double bodySize1 = MathAbs(rates[1].close - rates[1].open);
    double candleRange1 = rates[1].high - rates[1].low;
    double lowerWick1 = MathMin(rates[1].open, rates[1].close) - rates[1].low;
    double upperWick1 = rates[1].high - MathMax(rates[1].open, rates[1].close);
